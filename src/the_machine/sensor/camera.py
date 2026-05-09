@@ -219,8 +219,7 @@ class Camera:
                             fps=30.0,
                         )
 
-                        # 按间隔等待
-                        await asyncio.sleep(self.interval_sec)
+                        # MJPEG 流连续处理，不额外等待
 
                 # curl 退出，尝试重连
                 if proc.returncode != 0:

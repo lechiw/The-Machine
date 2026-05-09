@@ -155,10 +155,11 @@ class Scorer:
         if not triggered:
             return AnomalyScore(value=0.0, threshold=self.threshold, reason="一切正常")
 
-        # 评分：触发规则数 / 总规则数
+        # 评分：至少一条规则触发即为异常（评分 = 触发比例，但保底 0.5）
         total_rules = len(rule_results)
         triggered_count = len(triggered)
-        score_value = min(triggered_count / max(total_rules, 1), 1.0)
+        ratio = triggered_count / max(total_rules, 1)
+        score_value = max(ratio, 0.5) if triggered_count > 0 else 0.0
 
         reasons = [r["reason"] for r in triggered if r.get("reason")]
         reason = "；".join(reasons)
