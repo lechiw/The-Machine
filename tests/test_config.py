@@ -7,7 +7,6 @@ import pytest
 
 from the_machine.config import ConfigManager, DEFAULT_CONFIG, CONFIG_SCHEMA
 from the_machine.config.whitelist import WhitelistManager
-from the_machine.exceptions import ConfigValidationError
 
 
 class TestConfigValidation:
@@ -30,56 +29,56 @@ class TestConfigValidation:
         errors = ConfigManager._validate_raw(self.VALID_CONFIG)
         assert errors == []
 
-    def test_missing_cameras_raises_error(self):
-        """缺少 cameras 应报错"""
-        with pytest.raises(ConfigValidationError):
-            ConfigManager._validate_raw({"detection": {"confidence": 0.5}, "anomaly": {}})
+    def test_missing_cameras_returns_errors(self):
+        """缺少 cameras 应返回错误"""
+        errors = ConfigManager._validate_raw({"detection": {"confidence": 0.5}, "anomaly": {}})
+        assert len(errors) > 0
 
-    def test_camera_missing_id_raises_error(self):
-        """cameras 条目缺少 id 应报错"""
-        with pytest.raises(ConfigValidationError):
-            ConfigManager._validate_raw({
-                "cameras": [{"name": "门口", "rtsp": "rtsp://..."}],
-                "detection": {"confidence": 0.5},
-                "anomaly": {},
-            })
+    def test_camera_missing_id_returns_errors(self):
+        """cameras 条目缺少 id 应返回错误"""
+        errors = ConfigManager._validate_raw({
+            "cameras": [{"name": "门口", "rtsp": "rtsp://..."}],
+            "detection": {"confidence": 0.5},
+            "anomaly": {},
+        })
+        assert len(errors) > 0
 
-    def test_camera_missing_rtsp_raises_error(self):
-        """cameras 条目缺少 rtsp 应报错"""
-        with pytest.raises(ConfigValidationError):
-            ConfigManager._validate_raw({
-                "cameras": [{"id": "cam1", "name": "门口"}],
-                "detection": {"confidence": 0.5},
-                "anomaly": {},
-            })
+    def test_camera_missing_rtsp_returns_errors(self):
+        """cameras 条目缺少 rtsp 应返回错误"""
+        errors = ConfigManager._validate_raw({
+            "cameras": [{"id": "cam1", "name": "门口"}],
+            "detection": {"confidence": 0.5},
+            "anomaly": {},
+        })
+        assert len(errors) > 0
 
     def test_confidence_out_of_range(self):
-        """confidence 超出 [0,1] 应报错"""
-        with pytest.raises(ConfigValidationError):
-            ConfigManager._validate_raw({
-                "cameras": [{"id": "cam1", "name": "x", "rtsp": "rtsp://..."}],
-                "detection": {"confidence": 1.5},
-                "anomaly": {},
-            })
+        """confidence 超出 [0,1] 应返回错误"""
+        errors = ConfigManager._validate_raw({
+            "cameras": [{"id": "cam1", "name": "x", "rtsp": "rtsp://..."}],
+            "detection": {"confidence": 1.5},
+            "anomaly": {},
+        })
+        assert len(errors) > 0
 
     def test_invalid_rule_name(self):
-        """rules 中不存在的规则名应报错"""
-        with pytest.raises(ConfigValidationError):
-            ConfigManager._validate_raw({
-                "cameras": [{"id": "cam1", "name": "x", "rtsp": "rtsp://..."}],
-                "detection": {"confidence": 0.5},
-                "anomaly": {"rules": ["unknown_person", "magic_rule"]},
-            })
+        """rules 中不存在的规则名应返回错误"""
+        errors = ConfigManager._validate_raw({
+            "cameras": [{"id": "cam1", "name": "x", "rtsp": "rtsp://..."}],
+            "detection": {"confidence": 0.5},
+            "anomaly": {"rules": ["unknown_person", "magic_rule"]},
+        })
+        assert len(errors) > 0
 
     def test_unknown_field_rejected(self):
         """不应允许额外未知字段"""
-        with pytest.raises(ConfigValidationError):
-            ConfigManager._validate_raw({
-                "cameras": [{"id": "cam1", "name": "x", "rtsp": "rtsp://..."}],
-                "detection": {"confidence": 0.5},
-                "anomaly": {},
-                "unknown_field": "should_not_exist",
-            })
+        errors = ConfigManager._validate_raw({
+            "cameras": [{"id": "cam1", "name": "x", "rtsp": "rtsp://..."}],
+            "detection": {"confidence": 0.5},
+            "anomaly": {},
+            "unknown_field": "should_not_exist",
+        })
+        assert len(errors) > 0
 
 
 class TestConfigLoad:

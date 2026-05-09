@@ -1,0 +1,45 @@
+{
+  "cameras": [
+    {
+      "id": "front_door",
+      "name": "门口",
+      "rtsp": "rtsp://localhost:8554/test",
+      "interval_sec": 2.0,
+      "active_hours": {
+        "start": "07:00",
+        "end": "23:00"
+      }
+    }
+  ],
+  "whitelist": [
+    {
+      "name": "老大",
+      "face_label": "老大_face"
+    }
+  ],
+  "detection": {
+    "model": "default",
+    "confidence": 0.5,
+    "interval_sec": 2.0,
+    "target_classes": [
+      0
+    ]
+  },
+  "anomaly": {
+    "score_threshold": 0.7,
+    "cooldown_sec": 300,
+    "rules": [
+      "unknown_person",
+      "off_hours_motion"
+    ]
+  },
+  "notifier": {
+    "quiet_mode": false,
+    "dnd_start": "23:00",
+    "dnd_end": "07:00"
+  },
+  "storage": {
+    "evidence_retention_days": 7,
+    "db_path": "data/events.db"
+  }
+}

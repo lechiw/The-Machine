@@ -149,7 +149,7 @@ class Scorer:
 
         reasons = [r["reason"] for r in triggered if r.get("reason")]
         reason = "；".join(reasons)
-        triggered_names = [r["name"] for r in triggered]
+        triggered_names = [r.get("name", "unknown") for r in triggered]
 
         return AnomalyScore(
             value=score_value,
