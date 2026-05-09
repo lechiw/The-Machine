@@ -296,7 +296,51 @@ class TheMachine:
             names = "、".join(p["name"] for p in wl)
             return f"📋 白名单 ({len(wl)} 人): {names}"
 
-        return f"❓ 未知命令: {cmd}\n支持: 状态 / 静音 / 恢复 / 白名单 / 添加白名单：名字 / 删除白名单：名字"
+        if cmd in ("今天告警", "今日告警", "today"):
+            return self._query_alerts(days=1)
+
+        if cmd in ("历史告警", "告警记录", "history"):
+            return self._query_alerts(days=7)
+
+        if cmd in ("告警统计", "统计"):
+            return self._query_alerts(days=7, summary=True)
+
+        return f"❓ 未知命令: {cmd}\n支持: 状态 / 静音 / 恢复 / 白名单 / 添加白名单：名字 / 删除白名单：名字 / 今天告警 / 历史告警 / 告警统计"
+
+    def _query_alerts(self, days: int = 7, summary: bool = False) -> str:
+        """查询告警历史"""
+        try:
+            events = self._notifier._event_store.query(days=days)
+        except Exception:
+            events = []
+
+        if not events:
+            return f"📭 最近 {days} 天无告警记录"
+
+        if summary:
+            # 统计
+            types = {}
+            for e in events:
+                et = e.get("event_type", "unknown")
+                types[et] = types.get(et, 0) + 1
+            type_summary = " | ".join(f"{k}: {v}次" for k, v in types.items())
+            return (
+                f"📊 最近 {days} 天告警统计\n"
+                f"总数: {len(events)} 条\n"
+                f"{type_summary}"
+            )
+
+        # 列表模式
+        lines = [f"📋 最近 {days} 天告警记录 ({len(events)} 条)"]
+        for e in events[:10]:  # 最多显示 10 条
+            ts = e.get("timestamp", "")[11:19] if e.get("timestamp") else ""
+            et = e.get("event_type", "?")
+            cam = e.get("camera_id", "?")
+            reason = e.get("reason", "")[:30]
+            lines.append(f"  {ts} {et} @ {cam} {reason}")
+        if len(events) > 10:
+            lines.append(f"  ...还有 {len(events)-10} 条")
+        return "\n".join(lines)
 
     # ── 状态 ──
 
