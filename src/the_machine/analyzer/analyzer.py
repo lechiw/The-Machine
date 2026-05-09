@@ -183,3 +183,60 @@ class CoolingManager:
         """重置冷却（用于测试）"""
         key = (camera_id, rule_name)
         self._last_triggered.pop(key, None)
+
+
+# ── 帧间跟踪（用于 prolonged_stay） ──
+
+class StayTracker:
+    """跨帧跟踪同一区域的目标停留时间"""
+
+    def __init__(self, max_stay_sec: int = 300):
+        self.max_stay_sec = max_stay_sec
+        self._tracked: dict[str, dict] = {}  # camera_id -> {first_seen, last_seen, max_stay}
+
+    def update(self, camera_id: str, has_person: bool) -> dict:
+        """更新跟踪状态，返回当前停留信息"""
+        now = time.time()
+        if camera_id not in self._tracked:
+            self._tracked[camera_id] = {
+                "first_seen": now,
+                "last_seen": now,
+                "continuous": False,
+                "max_continuous": 0.0,
+            }
+
+        state = self._tracked[camera_id]
+
+        if has_person:
+            if state["continuous"]:
+                # 持续检测到人
+                state["last_seen"] = now
+            else:
+                # 新的人出现
+                state["first_seen"] = now
+                state["last_seen"] = now
+                state["continuous"] = True
+        else:
+            if state["continuous"]:
+                # 人离开了，记录此次持续时间
+                duration = now - state["first_seen"]
+                if duration > state["max_continuous"]:
+                    state["max_continuous"] = duration
+                state["continuous"] = False
+
+        current_duration = now - state["first_seen"] if state["continuous"] else 0.0
+        return {
+            "continuous": state["continuous"],
+            "current_duration_sec": round(current_duration, 1),
+            "max_stay_sec": self.max_stay_sec,
+        }
+
+    def get_stay_duration(self, camera_id: str) -> float:
+        """获取当前持续停留时间"""
+        state = self._tracked.get(camera_id)
+        if not state or not state["continuous"]:
+            return 0.0
+        return time.time() - state["first_seen"]
+
+    def reset_camera(self, camera_id: str) -> None:
+        self._tracked.pop(camera_id, None)

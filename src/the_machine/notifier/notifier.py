@@ -140,8 +140,9 @@ class EventStore:
 
         sql += " ORDER BY timestamp DESC"
 
-        rows = self._conn.execute(sql, params).fetchall()
-        columns = [desc[0] for desc in self._conn.description]
+        cursor = self._conn.execute(sql, params)
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
         return [dict(zip(columns, row)) for row in rows]
 
     def close(self) -> None:
