@@ -98,8 +98,11 @@ class RuleEngine:
 
 
 def _rule_unknown_person(ctx: dict) -> dict:
-    """规则：出现未知人脸"""
+    """规则：出现未知人脸 — 仅当检测到脸且不在白名单时触发"""
     faces = ctx.get("faces", [])
+    if not faces:
+        # 没检测到人脸 = 可能是背面/侧脸，不触发
+        return {"triggered": False, "reason": "未检测到人脸"}
     unknown = [f for f in faces if not f.get("known", True)]
     if unknown:
         count = len(unknown)
