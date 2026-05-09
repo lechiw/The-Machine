@@ -4,26 +4,27 @@ The Machine — CLI 入口
 
 Usage:
     python main.py -c config.json
-    python main.py                   # 使用默认 config.json
+
+API (由 OpenClaw agent 轮询):
+    GET  http://127.0.0.1:18790/alerts   → 获取待推送告警
+    POST http://127.0.0.1:18790/command  → 发送 Admin 命令
+    GET  http://127.0.0.1:18790/status   → 系统状态
 """
 import argparse
+import asyncio
 import signal
 import sys
 from pathlib import Path
 
-# 确保 src 在 path 中
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from the_machine.main import TheMachine
 
 
-def main():
+async def main_async():
     parser = argparse.ArgumentParser(description="🎬 The Machine — 本地监控告警系统")
-    parser.add_argument(
-        "-c", "--config",
-        default="config.json",
-        help="配置文件路径 (默认: config.json)",
-    )
+    parser.add_argument("-c", "--config", default="config.json",
+                        help="配置文件路径 (默认: config.json)")
     args = parser.parse_args()
 
     config_path = args.config
@@ -33,29 +34,40 @@ def main():
         sys.exit(1)
 
     machine = TheMachine(config_path)
-    machine.start()
+    await machine.start_async()
 
-    def handle_signal(sig, frame):
+    print(f"\n    📡 API: http://127.0.0.1:18790/")
+    print(f"    📋 状态: http://127.0.0.1:18790/status")
+    print(f"")
+
+    stop_event = asyncio.Event()
+
+    def handle_signal():
         print("\n🛑 正在关闭...")
-        machine.stop()
-        sys.exit(0)
+        stop_event.set()
 
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, handle_signal)
+        except NotImplementedError:
+            # Windows 不支持 add_signal_handler
+            signal.signal(sig, lambda s, f: handle_signal())
 
-    # 主循环
-    try:
-        import time
-        while machine.is_alive():
-            time.sleep(10)
-            status = machine.status()
-            # 每隔一段时间打印状态
-            print(f"  [{status['cameras_connected']}/{status['cameras']}] 帧: {status['total_frames']} 告警: {status['total_alerts']}")
-    except KeyboardInterrupt:
-        pass
-    finally:
-        machine.stop()
+    # 状态打印循环
+    async def status_printer():
+        while not stop_event.is_set():
+            s = machine.status()
+            print(f"  [{s['cameras_connected']}/{s['cameras']}] "
+                  f"帧:{s['total_frames']} 告警:{s['total_alerts']} 推送:{s['notifications_sent']}")
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                pass
+
+    await asyncio.gather(status_printer(), stop_event.wait())
+    await machine.stop_async()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main_async())

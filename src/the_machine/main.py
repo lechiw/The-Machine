@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from .api import MachineAPI
 from .config import ConfigManager, WhitelistManager
 from .detector.detector import Detector, ObjectDetector, FaceRecognizer, MotionDetector
 from .analyzer.analyzer import (
@@ -75,6 +76,10 @@ class TheMachine:
             quiet_mode=quiet_mode,
             event_store=event_store,
         )
+
+        # API
+        api_port = int(self._config.get("api.port", 18790))
+        self._api = MachineAPI(self, port=api_port)
 
         # 运行状态
         self._running = False
@@ -153,6 +158,8 @@ class TheMachine:
                 score=score.value,
                 reason=score.reason,
             )
+            # 推送到 API 待推送队列
+            self._api.push_alert(event)
             return event
 
         return None
@@ -167,6 +174,16 @@ class TheMachine:
         self._running = True
         self._start_time = datetime.now()
         print(f"🤖 The Machine 启动 | {self._camera_manager.count} 摄像头")
+
+    async def start_async(self) -> None:
+        """异步启动，含 API 服务器"""
+        self.start()
+        await self._api.start()
+
+    async def stop_async(self) -> None:
+        """异步关闭"""
+        await self._api.stop()
+        self.stop()
 
     def stop(self) -> None:
         """优雅关闭"""
