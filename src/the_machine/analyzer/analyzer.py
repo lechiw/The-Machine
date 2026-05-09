@@ -144,16 +144,67 @@ def _rule_motion_detected(ctx: dict) -> dict:
     return {"triggered": False, "reason": ""}
 
 
-def _rule_person_present(ctx: dict) -> dict:
-    """规则：画面中检测到人（HOG 行人检测，无论是否在移动）"""
-    has_objects = ctx.get("has_objects", False)
-    num_persons = ctx.get("num_persons", 0)
-    if has_objects and num_persons > 0:
-        return {
-            "triggered": True,
-            "reason": f"画面中检测到 {num_persons} 人",
-        }
+def _rule_person_entered(ctx: dict) -> dict:
+    """规则：有人进入画面（状态变化触发，不重复）"""
+    entered = ctx.get("person_entered", False)
+    num = ctx.get("num_persons", 0)
+    if entered and num > 0:
+        return {"triggered": True, "reason": f"有人进入画面（当前 {num} 人）"}
     return {"triggered": False, "reason": ""}
+
+
+def _rule_person_left(ctx: dict) -> dict:
+    """规则：有人离开画面（状态变化触发，可选启用）"""
+    left = ctx.get("person_left", False)
+    if left:
+        return {"triggered": True, "reason": "有人离开画面"}
+    return {"triggered": False, "reason": ""}
+
+
+# ── 状态跟踪器 ──
+
+class PersonStateTracker:
+    """跟踪画面中人员进出状态，只在状态变化时触发"""
+
+    def __init__(self):
+        self._was_present = False
+
+    def update(self, has_people: bool) -> dict:
+        """更新状态，返回变化信息"""
+        entered = has_people and not self._was_present
+        left = not has_people and self._was_present
+        self._was_present = has_people
+        return {"entered": entered, "left": left, "present": has_people}
+
+    def reset(self):
+        self._was_present = False
+
+
+# ── 自适应运动检测阈值 ──
+
+class AdaptiveMotionThreshold:
+    """维护运动量的滑动中位数，动态计算阈值"""
+
+    def __init__(self, window: int = 10, multiplier: float = 3.0):
+        self._window = window
+        self._multiplier = multiplier
+        self._scores: list[float] = []
+
+    def update(self, raw_score: float) -> float:
+        """更新并返回调整后的运动量（已减去基线）"""
+        self._scores.append(raw_score)
+        if len(self._scores) > self._window:
+            self._scores.pop(0)
+        if len(self._scores) < 3:
+            return raw_score
+        sorted_scores = sorted(self._scores)
+        median = sorted_scores[len(sorted_scores) // 2]
+        dynamic_threshold = median * self._multiplier
+        adjusted = max(0.0, raw_score - median)
+        return adjusted if adjusted > dynamic_threshold else 0.0
+
+    def reset(self):
+        self._scores.clear()
 
 
 # ── 评分器 ──

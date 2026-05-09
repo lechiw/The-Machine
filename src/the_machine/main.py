@@ -20,11 +20,14 @@ from .analyzer.analyzer import (
     Scorer,
     CoolingManager,
     StayTracker,
+    PersonStateTracker,
+    AdaptiveMotionThreshold,
     _rule_unknown_person,
     _rule_off_hours_motion,
     _rule_prolonged_stay,
     _rule_motion_detected,
-    _rule_person_present,
+    _rule_person_entered,
+    _rule_person_left,
 )
 from .models import Frame, NumberEvent
 from .notifier.notifier import Notifier, QuietMode, EventStore, QQFormatter, _generate_event_id
@@ -64,6 +67,8 @@ class TheMachine:
             cooldown_sec=self._config.get("anomaly.cooldown_sec", 300)
         )
         self._stay_tracker = StayTracker(max_stay_sec=300)
+        self._person_state = PersonStateTracker()
+        self._adaptive_motion = AdaptiveMotionThreshold()
 
         # ── 通知器 ──
         quiet_mode = QuietMode(
@@ -110,7 +115,8 @@ class TheMachine:
         self._rule_engine.register("off_hours_motion", _rule_off_hours_motion)
         self._rule_engine.register("prolonged_stay", _rule_prolonged_stay)
         self._rule_engine.register("motion_detected", _rule_motion_detected)
-        self._rule_engine.register("person_present", _rule_person_present)
+        self._rule_engine.register("person_entered", _rule_person_entered)
+        self._rule_engine.register("person_left", _rule_person_left)
 
     # ── 帧处理流水线 ──
 
@@ -157,9 +163,14 @@ class TheMachine:
         detection = self._detector.analyze(frame)
 
         # 2. 帧间跟踪
+        # 2. 帧间跟踪 + 人员进出状态
         stay_info = self._stay_tracker.update(frame.camera_id, detection.has_people)
+        person_state = self._person_state.update(detection.has_people)
 
-        # 3. 构建规则上下文
+        # 3. 自适应运动阈值
+        adjusted_motion = self._adaptive_motion.update(detection.motion_score)
+
+        # 4. 构建规则上下文
         camera = self._get_camera(frame.camera_id)
         rule_context = {
             "faces": [
@@ -171,7 +182,9 @@ class TheMachine:
             "num_persons": len([o for o in detection.objects if o.label == "person"]),
             "stay_duration_sec": stay_info["current_duration_sec"],
             "max_stay_sec": stay_info["max_stay_sec"],
-            "motion_score": detection.motion_score,
+            "motion_score": adjusted_motion,
+            "person_entered": person_state["entered"],
+            "person_left": person_state["left"],
         }
 
         # 4. 规则评估
