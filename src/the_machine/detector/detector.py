@@ -52,6 +52,8 @@ class ObjectDetector:
         self.target_classes = target_classes or [0]
         self._net = None
         self._model_loaded = False
+        # 确保 OpenCV 已加载（供 HOG 检测使用）
+        _ensure_cv2()
         self._load_default_model()
 
     def _load_default_model(self) -> None:
@@ -138,7 +140,7 @@ class ObjectDetector:
             for (x, y, fw, fh), weight in zip(rects, weights):
                 results.append(DetectedObject(
                     class_id=0, label="person",
-                    confidence=min(float(weight / 2.0), 1.0),
+                    confidence=min(float(weight), 1.0),
                     bbox=(x / w, y / h, (x + fw) / w, (y + fh) / h),
                 ))
         except Exception:
