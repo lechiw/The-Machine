@@ -102,9 +102,10 @@ CONFIG_SCHEMA = {
                             "unknown_person",
                             "off_hours_motion",
                             "prolonged_stay",
+                            "motion_detected",
                         ],
                     },
-                    "default": ["unknown_person", "off_hours_motion"],
+                    "default": ["unknown_person", "off_hours_motion", "motion_detected"],
                 },
             },
             "additionalProperties": False,
@@ -159,7 +160,7 @@ DEFAULT_CONFIG = {
     "anomaly": {
         "score_threshold": 0.7,
         "cooldown_sec": 300,
-        "rules": ["unknown_person", "off_hours_motion"],
+        "rules": ["unknown_person", "off_hours_motion", "motion_detected"],
     },
     "notifier": {
         "quiet_mode": False,

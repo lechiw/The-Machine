@@ -253,12 +253,12 @@ class MotionDetector:
             gray = _cv2.imdecode(img_array, _cv2.IMREAD_GRAYSCALE)
             if gray is None:
                 return 0.0
-            gray = _cv2.GaussianBlur(gray, (21, 21), 0)
+            gray = _cv2.GaussianBlur(gray, (15, 15), 0)
             if self._prev_gray is None:
                 self._prev_gray = gray
                 return 0.0
             diff = _cv2.absdiff(self._prev_gray, gray)
-            _, thresh = _cv2.threshold(diff, 25, 255, _cv2.THRESH_BINARY)
+            _, thresh = _cv2.threshold(diff, 10, 255, _cv2.THRESH_BINARY)
             score = float(_cv2.countNonZero(thresh)) / float(gray.size)
             self._prev_gray = gray
             return score

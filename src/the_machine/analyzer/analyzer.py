@@ -128,6 +128,19 @@ def _rule_prolonged_stay(ctx: dict) -> dict:
     return {"triggered": False, "reason": ""}
 
 
+def _rule_motion_detected(ctx: dict) -> dict:
+    """规则：画面中出现运动（帧间差分 > 阈值）"""
+    motion_score = ctx.get("motion_score", 0.0)
+    threshold = ctx.get("motion_threshold", 0.001)
+    if motion_score >= threshold:
+        pct = motion_score * 100
+        return {
+            "triggered": True,
+            "reason": f"检测到画面运动（运动量 {pct:.1f}%）",
+        }
+    return {"triggered": False, "reason": ""}
+
+
 # ── 评分器 ──
 
 class Scorer:

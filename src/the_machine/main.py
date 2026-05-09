@@ -23,6 +23,7 @@ from .analyzer.analyzer import (
     _rule_unknown_person,
     _rule_off_hours_motion,
     _rule_prolonged_stay,
+    _rule_motion_detected,
 )
 from .models import NumberEvent
 from .notifier.notifier import Notifier, QuietMode, EventStore, QQFormatter, _generate_event_id
@@ -107,6 +108,7 @@ class TheMachine:
         self._rule_engine.register("unknown_person", _rule_unknown_person)
         self._rule_engine.register("off_hours_motion", _rule_off_hours_motion)
         self._rule_engine.register("prolonged_stay", _rule_prolonged_stay)
+        self._rule_engine.register("motion_detected", _rule_motion_detected)
 
     # ── 帧处理流水线 ──
 
@@ -166,6 +168,7 @@ class TheMachine:
             "has_objects": len(detection.objects) > 0,
             "stay_duration_sec": stay_info["current_duration_sec"],
             "max_stay_sec": stay_info["max_stay_sec"],
+            "motion_score": detection.motion_score,
         }
 
         # 4. 规则评估
