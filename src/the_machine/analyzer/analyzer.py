@@ -141,6 +141,18 @@ def _rule_motion_detected(ctx: dict) -> dict:
     return {"triggered": False, "reason": ""}
 
 
+def _rule_person_present(ctx: dict) -> dict:
+    """规则：画面中检测到人（HOG 行人检测，无论是否在移动）"""
+    has_objects = ctx.get("has_objects", False)
+    num_persons = ctx.get("num_persons", 0)
+    if has_objects and num_persons > 0:
+        return {
+            "triggered": True,
+            "reason": f"画面中检测到 {num_persons} 人",
+        }
+    return {"triggered": False, "reason": ""}
+
+
 # ── 评分器 ──
 
 class Scorer:

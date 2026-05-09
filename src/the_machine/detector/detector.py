@@ -68,13 +68,26 @@ class ObjectDetector:
             self._net = None
 
     def detect(self, frame: Frame) -> list[DetectedObject]:
-        """对帧进行目标检测"""
+        """对帧进行目标检测 — 同时运行 DNN + HOG 行人检测"""
         results = []
+        
+        # HOG 行人检测（始终运行）
+        results.extend(self._detect_people(frame))
+        
+        # DNN 推理（如果模型加载成功）
         if self._net is not None:
-            results = self._dnn_inference(frame)
-        else:
-            results = self._haar_fallback(frame)
-        return [obj for obj in results if obj.confidence >= self.confidence]
+            results.extend(self._dnn_inference(frame))
+        
+        # 过滤 + 去重（按置信度保留最优的）
+        seen = set()
+        filtered = []
+        for obj in sorted(results, key=lambda o: o.confidence, reverse=True):
+            key = (obj.label, tuple(round(b, 1) for b in obj.bbox))
+            if key not in seen:
+                seen.add(key)
+                if obj.confidence >= self.confidence:
+                    filtered.append(obj)
+        return filtered
 
     def _dnn_inference(self, frame: Frame) -> list[DetectedObject]:
         """MobileNet SSD 推理"""
@@ -109,21 +122,23 @@ class ObjectDetector:
             pass
         return results
 
-    def _haar_fallback(self, frame: Frame) -> list[DetectedObject]:
-        """无 DNN 时的回退：Haar Cascade 人脸检测"""
+    def _detect_people(self, frame: Frame) -> list[DetectedObject]:
+        """HOG 行人检测 — 检测画面中的人（无论是否在移动）"""
         results = []
         try:
             _ensure_cv2()
             img_array = _np.frombuffer(frame.jpeg_bytes, dtype=_np.uint8)
-            img = _cv2.imdecode(img_array, _cv2.IMREAD_GRAYSCALE)
+            img = _cv2.imdecode(img_array, _cv2.IMREAD_COLOR)
             if img is None:
                 return results
-            face_cascade = _cv2.CascadeClassifier(_cascade_path())
-            faces = face_cascade.detectMultiScale(img, 1.1, 4)
             h, w = img.shape[:2]
-            for (x, y, fw, fh) in faces:
+            hog = _cv2.HOGDescriptor()
+            hog.setSVMDetector(_cv2.HOGDescriptor_getDefaultPeopleDetector())
+            rects, weights = hog.detectMultiScale(img, winStride=(8, 8), padding=(4, 4), scale=1.05)
+            for (x, y, fw, fh), weight in zip(rects, weights):
                 results.append(DetectedObject(
-                    class_id=0, label="person", confidence=0.6,
+                    class_id=0, label="person",
+                    confidence=min(float(weight / 2.0), 1.0),
                     bbox=(x / w, y / h, (x + fw) / w, (y + fh) / h),
                 ))
         except Exception:
