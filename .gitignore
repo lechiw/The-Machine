@@ -11,3 +11,4 @@ build/
 *.swo
 .DS_Store
 data/
+config.json
