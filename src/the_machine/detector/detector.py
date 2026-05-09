@@ -155,12 +155,34 @@ class ObjectDetector:
 # ── FaceRecognizer ──
 
 class FaceRecognizer:
-    """人脸识别器 — Haar Cascade 检测 + 白名单比对"""
+    """人脸识别器 — Haar Cascade 检测 + LBPH 人脸识别 (OpenCV contrib)"""
 
-    def __init__(self, similarity_threshold: float = 0.6):
-        self.similarity_threshold = similarity_threshold
-        self._whitelist_features: dict[str, Any] = {}
+    FACE_SIZE = (100, 100)  # LBPH 训练用统一尺寸
+
+    FEATURES_PATH = None  # 外部可设置特征文件路径
+
+    def __init__(self, confidence_threshold: float = 0.5):
+        self.confidence_threshold = confidence_threshold  # 余弦相似度阈值
         self._cascade: Any = None
+        # 手动特征库（从 pickle 加载）
+        self._known_features: dict[str, Any] = {}  # name -> feature_vector
+        self._load_known_features()
+
+    def _load_known_features(self):
+        """从 pickle 文件加载预训练的人脸特征"""
+        import pickle
+        import os
+        path = FaceRecognizer.FEATURES_PATH or os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "data", "known_faces.pkl"
+        )
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    features = pickle.load(f)
+                    if isinstance(features, dict):
+                        self._known_features = features
+            except Exception:
+                pass
 
     def _get_cascade(self):
         if self._cascade is None:
@@ -168,90 +190,145 @@ class FaceRecognizer:
             self._cascade = _cv2.CascadeClassifier(_cascade_path())
         return self._cascade
 
-    def register_face(self, name: str, feature: Any) -> None:
-        self._whitelist_features[name] = feature
-
-    def register_from_frame(self, name: str, frame: Frame) -> bool:
-        faces = self._detect_faces(frame)
-        if not faces:
-            return False
-        largest = max(faces, key=lambda f: (f[2] * f[3]))
-        feature = self._extract_feature(frame, largest)
-        if feature is not None:
-            self.register_face(name, feature)
-            return True
-        return False
-
-    def recognize(self, frame: Frame) -> Optional[FaceResult]:
-        faces = self._detect_faces(frame)
+    def _detect_one_face(self, gray: Any) -> Optional[tuple[int, int, int, int]]:
+        """检测帧中最 prominent 的人脸"""
+        faces = self._get_cascade().detectMultiScale(gray, 1.1, 4, minSize=(50, 50))
         if faces is None or len(faces) == 0:
             return None
+        # 取最大的脸
+        largest = max(faces, key=lambda f: f[2] * f[3])
+        return tuple(largest)
 
-        results = []
-        for face_rect in faces:
-            feature = self._extract_feature(frame, face_rect)
-            if feature is None:
-                continue
-            best_match = ("unknown", 0.0)
-            for name, known_feat in self._whitelist_features.items():
-                sim = self._cosine_similarity(feature, known_feat)
-                if sim > best_match[1]:
-                    best_match = (name, sim)
-            is_known = best_match[1] >= self.similarity_threshold
-            results.append(FaceResult(
-                known=is_known,
-                name=best_match[0] if is_known else "unknown",
-                confidence=best_match[1],
-            ))
-
-        if not results:
+    def _extract_face(self, gray: Any, rect: tuple) -> Optional[Any]:
+        """提取并归一化人脸区域"""
+        x, y, w, h = rect
+        if w < 20 or h < 20:
             return None
-        return max(results, key=lambda r: r.confidence)
+        face = gray[y:y + h, x:x + w]
+        if face.size == 0:
+            return None
+        return _cv2.resize(face, self.FACE_SIZE)
 
-    def _detect_faces(self, frame: Frame) -> list:
+    def _extract_feature(self, gray_face: Any) -> Any:
+        """从归一化的人脸图像提取特征向量（64x64 归一化缩略图）"""
         try:
-            _ensure_cv2()
-            img_array = _np.frombuffer(frame.jpeg_bytes, dtype=_np.uint8)
-            gray = _cv2.imdecode(img_array, _cv2.IMREAD_GRAYSCALE)
-            if gray is None:
-                return []
-            faces = self._get_cascade().detectMultiScale(gray, 1.1, 4)
-            if faces is None:
-                return []
-            return faces.tolist() if hasattr(faces, 'tolist') else list(faces)
-        except Exception:
-            return []
-
-    def _extract_feature(self, frame: Frame, face_rect: tuple) -> Optional[Any]:
-        try:
-            x, y, w, h = face_rect
-            _ensure_cv2()
-            img_array = _np.frombuffer(frame.jpeg_bytes, dtype=_np.uint8)
-            img = _cv2.imdecode(img_array, _cv2.IMREAD_GRAYSCALE)
-            if img is None:
-                return None
-            face_img = img[y:y + h, x:x + w]
-            if face_img.size == 0:
-                return None
-            face_resized = _cv2.resize(face_img, (64, 64)).flatten().astype(_np.float32)
-            face_resized = (face_resized - face_resized.mean()) / (face_resized.std() + 1e-8)
-            return face_resized
+            resized = _cv2.resize(gray_face, (64, 64)).flatten().astype(_np.float32)
+            return (resized - resized.mean()) / (resized.std() + 1e-8)
         except Exception:
             return None
 
     @staticmethod
-    def _cosine_similarity(a, b):
-        _ensure_cv2()
+    def _cosine_similarity(a: Any, b: Any) -> float:
+        """余弦相似度"""
         dot = _np.dot(a, b)
         norm = _np.linalg.norm(a) * _np.linalg.norm(b)
         return float(dot / (norm + 1e-8))
 
+    def register_from_frame(self, name: str, frame: Frame) -> bool:
+        """从帧中检测人脸并注册"""
+        _ensure_cv2()
+        img_array = _np.frombuffer(frame.jpeg_bytes, dtype=_np.uint8)
+        gray = _cv2.imdecode(img_array, _cv2.IMREAD_GRAYSCALE)
+        if gray is None:
+            return False
+        rect = self._detect_one_face(gray)
+        if rect is None:
+            return False
+        face = self._extract_face(gray, rect)
+        if face is None:
+            return False
+        feature = self._extract_feature(face)
+        if feature is None:
+            return False
+        self._known_features[name] = feature
+        self._save_features()
+        return True
+
+    def register_from_image(self, name: str, image_path: str) -> bool:
+        """从图片文件注册人脸"""
+        _ensure_cv2()
+        gray = _cv2.imread(image_path, _cv2.IMREAD_GRAYSCALE)
+        if gray is None:
+            return False
+        rect = self._detect_one_face(gray)
+        if rect is None:
+            return False
+        face = self._extract_face(gray, rect)
+        if face is None:
+            return False
+        feature = self._extract_feature(face)
+        if feature is None:
+            return False
+        self._known_features[name] = feature
+        self._save_features()
+        return True
+
+    def _save_features(self):
+        """保存特征到文件"""
+        import pickle
+        import os
+        path = FaceRecognizer.FEATURES_PATH or os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "data", "known_faces.pkl"
+        )
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            with open(path, "wb") as f:
+                pickle.dump(self._known_features, f)
+        except Exception:
+            pass
+        self._label_map[label] = name
+
+        self._faces.append(face)
+        self._labels.append(label)
+        self._trained = False
+        return True
+
+    def recognize(self, frame: Frame) -> Optional[FaceResult]:
+        """识别帧中的人脸 — 与已注册特征比对"""
+        _ensure_cv2()
+        img_array = _np.frombuffer(frame.jpeg_bytes, dtype=_np.uint8)
+        gray = _cv2.imdecode(img_array, _cv2.IMREAD_GRAYSCALE)
+        if gray is None:
+            return None
+
+        rect = self._detect_one_face(gray)
+        if rect is None:
+            return None
+
+        face = self._extract_face(gray, rect)
+        if face is None:
+            return None
+
+        feature = self._extract_feature(face)
+        if feature is None:
+            return FaceResult(known=False, name="unknown", confidence=0.0)
+
+        if not self._known_features:
+            return FaceResult(known=False, name="unknown", confidence=0.0)
+
+        # 与所有已注册特征比对
+        best_name = "unknown"
+        best_sim = 0.0
+        for name, known_feat in self._known_features.items():
+            sim = self._cosine_similarity(feature, known_feat)
+            if sim > best_sim:
+                best_sim = sim
+                best_name = name
+
+        is_known = best_sim >= self.confidence_threshold
+        return FaceResult(
+            known=is_known,
+            name=best_name if is_known else "unknown",
+            confidence=best_sim,
+        )
+
     def clear(self) -> None:
-        self._whitelist_features.clear()
+        """清空所有已注册人脸"""
+        self._known_features.clear()
 
     @property
     def known_count(self) -> int:
-        return len(self._whitelist_features)
+        return len(self._known_features)
 
 
 # ── MotionDetector ──
