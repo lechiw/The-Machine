@@ -20,7 +20,7 @@ CONFIG_SCHEMA = {
                     "name": {"type": "string", "minLength": 1},
                     "rtsp": {
                         "type": "string",
-                        "pattern": "^rtsp://",
+                        "pattern": "^(rtsp|http)://",
                     },
                     "interval_sec": {
                         "type": "number",

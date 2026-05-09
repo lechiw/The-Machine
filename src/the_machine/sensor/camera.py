@@ -71,7 +71,11 @@ class Camera:
     def connect(self) -> None:
         """打开摄像头连接"""
         _lazy_imports()
-        self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+        # HTTP(MJPEG) 流用默认 backend，RTSP 用 ffmpeg backend
+        if self.rtsp_url.startswith("http"):
+            self._cap = cv2.VideoCapture(self.rtsp_url)
+        else:
+            self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
         if not self._cap.isOpened():
             raise CameraConnectionError(f"无法连接到摄像头 {self.name} ({self.rtsp_url})")
 

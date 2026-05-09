@@ -108,6 +108,29 @@ class TheMachine:
         self._rule_engine.register("off_hours_motion", _rule_off_hours_motion)
         self._rule_engine.register("prolonged_stay", _rule_prolonged_stay)
 
+    # ── 帧处理流水线 ──
+
+    async def _camera_pipeline(self, camera: Camera) -> None:
+        """单个摄像头的帧处理流水线"""
+        try:
+            async for frame in camera.stream():
+                if not self._running:
+                    break
+                event = self.process_frame(frame)
+                if event:
+                    self._notifier.send(event)
+                    print(f"  🚨 {event.event_type} @ {camera.name}", flush=True)
+        except Exception as e:
+            print(f"  ⚠️ 摄像头 {camera.name} 流水线异常: {e}", flush=True)
+
+    async def _run_pipeline(self) -> None:
+        """运行所有摄像头的帧处理流水线"""
+        tasks = []
+        for camera in self._camera_manager._cameras.values():
+            tasks.append(asyncio.create_task(self._camera_pipeline(camera)))
+        if tasks:
+            await asyncio.gather(*tasks)
+
     # ── 核心流水线（单帧处理） ──
 
     def process_frame(self, frame) -> Optional[NumberEvent]:
@@ -176,12 +199,16 @@ class TheMachine:
         print(f"🤖 The Machine 启动 | {self._camera_manager.count} 摄像头")
 
     async def start_async(self) -> None:
-        """异步启动，含 API 服务器"""
+        """异步启动，含 API 服务器 + 帧流水线"""
         self.start()
         await self._api.start()
+        # 启动帧处理流水线（不阻塞）
+        self._pipeline_task = asyncio.create_task(self._run_pipeline())
 
     async def stop_async(self) -> None:
         """异步关闭"""
+        if hasattr(self, '_pipeline_task'):
+            self._pipeline_task.cancel()
         await self._api.stop()
         self.stop()
 
