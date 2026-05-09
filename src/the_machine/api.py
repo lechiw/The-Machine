@@ -32,6 +32,7 @@ class MachineAPI:
             "event_type": event.event_type,
             "score": event.score,
             "reason": event.reason,
+            "evidence_path": event.evidence_path,
             "message": f"🚨 Number #{event.id} | {event.timestamp.strftime('%H:%M:%S')}\n"
                        f"区域：{event.camera_id}\n"
                        f"类型：{event.event_type}\n"

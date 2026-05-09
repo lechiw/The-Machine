@@ -189,6 +189,9 @@ class TheMachine:
             self._cooling.mark_alerted(frame.camera_id, primary_rule)
             self._total_alerts += 1
 
+            # 保存告警截图
+            evidence_path = self._save_evidence(frame.jpeg_bytes, primary_rule)
+
             event = NumberEvent(
                 id=_generate_event_id(),
                 camera_id=frame.camera_id,
@@ -196,10 +199,21 @@ class TheMachine:
                 event_type=primary_rule,
                 score=score.value,
                 reason=score.reason,
+                evidence_path=evidence_path,
             )
-            # 推送到 API 待推送队列
+            # 推送到 API 待推送队列（含截图路径）
             self._api.push_alert(event)
             return event
+
+    def _save_evidence(self, jpeg_bytes: bytes, event_type: str) -> str:
+        """保存告警截图到 evidence 目录"""
+        from datetime import datetime
+        ev_dir = Path("data/evidence")
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{event_type}.jpg"
+        path = ev_dir / filename
+        path.write_bytes(jpeg_bytes)
+        return str(path)
 
         return None
 

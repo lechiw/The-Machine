@@ -23,7 +23,7 @@ _seen_ids = set()
 
 
 def send_qq(message: str, media_path: str = "") -> bool:
-    """通过 OpenClaw CLI 发送 QQ 消息"""
+    """通过 OpenClaw CLI 发送 QQ 消息（支持图片附件）"""
     cmd = [
         "openclaw", "message", "send",
         "--channel", "qqbot",
@@ -31,7 +31,13 @@ def send_qq(message: str, media_path: str = "") -> bool:
         "--message", message,
     ]
     if media_path and os.path.isfile(media_path):
-        cmd.extend(["--file-path", media_path])
+        # 转存到 QQ media 目录
+        qq_media_dir = "/home/dministrator/.openclaw/media/qqbot/downloads"
+        os.makedirs(qq_media_dir, exist_ok=True)
+        dest = os.path.join(qq_media_dir, f"alert_{os.path.basename(media_path)}")
+        import shutil
+        shutil.copy2(media_path, dest)
+        cmd.extend(["--media", dest])
 
     try:
         result = subprocess.run(
@@ -71,8 +77,10 @@ def push_alerts():
             f"区域：{alert.get('camera_id', '?')}\n"
             f"{alert.get('reason', '')}"
         )
-        ok = send_qq(msg)
-        print(f"  {'✅' if ok else '❌'} 推送: {alert.get('event_type')} @ {alert.get('timestamp','?')[:19]}", flush=True)
+        # 如果有截图证据则附带
+        evidence = alert.get('evidence_path', '') or ''
+        ok = send_qq(msg, media_path=evidence)
+        print(f"  {'✅' if ok else '❌'} 推送: {alert.get('event_type')} @ {alert.get('timestamp','?')[:19]} {'📷' if evidence else ''}", flush=True)
 
 
 def main():
