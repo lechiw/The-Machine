@@ -17,7 +17,7 @@ import cv2
 import socket
 import struct
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from io import BytesIO
 
 
@@ -89,7 +89,8 @@ def main():
     args = parser.parse_args()
 
     global cap
-    cap = cv2.VideoCapture(args.cam)
+    # 使用 DShow 后端，其它应用（如 Camera app）可同时访问摄像头
+    cap = cv2.VideoCapture(args.cam, cv2.CAP_DSHOW)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
 
@@ -99,7 +100,7 @@ def main():
         return
 
     windows_ip = get_windows_ip()
-    server = HTTPServer(('0.0.0.0', args.port), MJPEGHandler)
+    server = ThreadingHTTPServer(('0.0.0.0', args.port), MJPEGHandler)
 
     print(f"""
 ╔══════════════════════════════════╗

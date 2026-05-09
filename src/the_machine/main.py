@@ -124,7 +124,13 @@ class TheMachine:
             except Exception as e:
                 if not self._running:
                     break
-                print(f"  ⚠️ 摄像头 {camera.name} 断流: {e}，5 秒后重连...", flush=True)
+                import traceback
+                tb = traceback.format_exc()
+                print(f"  ⚠️ 摄像头 {camera.name} 错误: {e}", flush=True)
+                for line in tb.split('\n')[-4:]:
+                    if line.strip():
+                        print(f"    {line.strip()}", flush=True)
+                print(f"  5 秒后重连...", flush=True)
                 await asyncio.sleep(5)
 
     async def _run_pipeline(self) -> None:

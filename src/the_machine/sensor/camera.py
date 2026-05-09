@@ -70,23 +70,31 @@ class Camera:
 
     def connect(self) -> None:
         """打开摄像头连接"""
-        _lazy_imports()
-        # HTTP(MJPEG) 流用默认 backend，RTSP 用 ffmpeg backend
         if self.rtsp_url.startswith("http"):
-            self._cap = cv2.VideoCapture(self.rtsp_url)
+            self._connect_http()
         else:
-            self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+            self._connect_rtsp()
+
+    def _connect_rtsp(self) -> None:
+        """RTSP 摄像头连接"""
+        _lazy_imports()
+        self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
         if not self._cap.isOpened():
             raise CameraConnectionError(f"无法连接到摄像头 {self.name} ({self.rtsp_url})")
-
-        # 读取第一帧确认连接正常
         ret, _ = self._cap.read()
         if not ret:
             self._cap.release()
             raise CameraConnectionError(f"摄像头 {self.name} 连接成功但无法读取帧")
-
         self._reconnect_count = 0
         self._fps_estimate = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
+
+    def _connect_http(self) -> None:
+        """HTTP MJPEG 摄像头连接 — 测试连接可用性"""
+        _lazy_imports()
+        # 不保留 cap，stream() 时用 curl 逐帧拉取（更稳定）
+        self._cap = None
+        self._reconnect_count = 0
+        self._fps_estimate = 30.0
 
     def disconnect(self) -> None:
         """关闭摄像头连接"""
@@ -112,6 +120,16 @@ class Camera:
 
     async def stream(self) -> AsyncGenerator[Frame, None]:
         """异步生成器，逐帧产出 Frame"""
+        self._running = True
+        if self.rtsp_url.startswith("http"):
+            async for frame in self._stream_http():
+                yield frame
+        else:
+            async for frame in self._stream_rtsp():
+                yield frame
+
+    async def _stream_rtsp(self) -> AsyncGenerator[Frame, None]:
+        """RTSP 流逐帧读取"""
         self._running = True
         self.connect()
 
@@ -157,6 +175,75 @@ class Camera:
         finally:
             self.disconnect()
 
+    async def _stream_http(self) -> AsyncGenerator[Frame, None]:
+        """HTTP MJPEG 流 — 使用 curl 逐帧拉取（比 OpenCV VideoCapture 更稳定）"""
+        self._running = True
+        self._frame_count = 0
+
+        while self._running:
+            try:
+                # 启动 curl 拉流
+                proc = await asyncio.create_subprocess_exec(
+                    "curl", "-s", "-N", "-m", "5", self.rtsp_url,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+
+                # 持续读取 stdout，寻找 JPEG 帧
+                buffer = b""
+                while self._running and proc.returncode is None:
+                    chunk = await asyncio.wait_for(proc.stdout.read(65536), timeout=10)
+                    if not chunk:
+                        break
+                    buffer += chunk
+
+                    # 从 buffer 中提取完整 JPEG 帧
+                    while True:
+                        start = buffer.find(b"\xff\xd8")
+                        if start < 0:
+                            break
+                        end = buffer.find(b"\xff\xd9", start)
+                        if end < 0:
+                            break  # 等待更多数据
+
+                        jpeg_bytes = buffer[start:end + 2]
+                        buffer = buffer[end + 2:]
+                        self._frame_count += 1
+
+                        yield Frame(
+                            camera_id=self.id,
+                            timestamp=datetime.now(),
+                            jpeg_bytes=jpeg_bytes,
+                            width=0,
+                            height=0,
+                            fps=30.0,
+                        )
+
+                        # 按间隔等待
+                        await asyncio.sleep(self.interval_sec)
+
+                # curl 退出，尝试重连
+                if proc.returncode != 0:
+                    self._reconnect_count += 1
+                    if self._reconnect_count > self.max_reconnect_attempts:
+                        raise CameraStreamError(
+                            f"摄像头 {self.name} 重连 {self.max_reconnect_attempts} 次均失败"
+                        )
+                    await asyncio.sleep(3)
+
+            except asyncio.TimeoutError:
+                # curl 超时，重连
+                self._reconnect_count += 1
+                await asyncio.sleep(3)
+                continue
+            except FileNotFoundError:
+                raise CameraConnectionError("curl 未安装，请执行: apt install curl")
+            except Exception as e:
+                if not self._running:
+                    break
+                self._reconnect_count += 1
+                await asyncio.sleep(3)
+                continue
     # ── 辅助 ──
 
     def is_active_hours(self, current: Optional[time] = None) -> bool:
@@ -182,7 +269,7 @@ class Camera:
             "id": self.id,
             "name": self.name,
             "frames_captured": self._frame_count,
-            "connected": self._cap is not None and self._cap.isOpened(),
+            "connected": self._frame_count > 0 or (self._cap is not None and self._cap.isOpened()),
             "reconnect_count": self._reconnect_count,
         }
 

@@ -167,7 +167,7 @@ class FaceRecognizer:
 
     def recognize(self, frame: Frame) -> Optional[FaceResult]:
         faces = self._detect_faces(frame)
-        if not faces:
+        if faces is None or len(faces) == 0:
             return None
 
         results = []
@@ -191,14 +191,17 @@ class FaceRecognizer:
             return None
         return max(results, key=lambda r: r.confidence)
 
-    def _detect_faces(self, frame: Frame) -> list[tuple[int, int, int, int]]:
+    def _detect_faces(self, frame: Frame) -> list:
         try:
             _ensure_cv2()
             img_array = _np.frombuffer(frame.jpeg_bytes, dtype=_np.uint8)
             gray = _cv2.imdecode(img_array, _cv2.IMREAD_GRAYSCALE)
             if gray is None:
                 return []
-            return self._get_cascade().detectMultiScale(gray, 1.1, 4)
+            faces = self._get_cascade().detectMultiScale(gray, 1.1, 4)
+            if faces is None:
+                return []
+            return faces.tolist() if hasattr(faces, 'tolist') else list(faces)
         except Exception:
             return []
 
