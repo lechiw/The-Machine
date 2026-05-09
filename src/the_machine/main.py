@@ -26,7 +26,7 @@ from .analyzer.analyzer import (
     _rule_motion_detected,
     _rule_person_present,
 )
-from .models import NumberEvent
+from .models import Frame, NumberEvent
 from .notifier.notifier import Notifier, QuietMode, EventStore, QQFormatter, _generate_event_id
 from .sensor.camera import Camera
 from .sensor.manager import CameraManager
@@ -305,7 +305,61 @@ class TheMachine:
         if cmd in ("告警统计", "统计"):
             return self._query_alerts(days=7, summary=True)
 
-        return f"❓ 未知命令: {cmd}\n支持: 状态 / 静音 / 恢复 / 白名单 / 添加白名单：名字 / 删除白名单：名字 / 今天告警 / 历史告警 / 告警统计"
+        if cmd.startswith("注册人脸") or cmd.startswith("注册"):
+            # 注册人脸：名字
+            parts = cmd.replace("注册人脸", "").replace("注册", "").replace("：", ":").split(":")
+            name = parts[-1].strip() if len(parts) > 1 else None
+            if name:
+                return self._register_face(name)
+            return "⚠️ 格式：注册人脸：你的名字"
+
+        return f"❓ 未知命令: {cmd}\n支持: 状态 / 静音 / 恢复 / 白名单 / 添加白名单：名字 / 删除白名单：名字 / 注册人脸：名字 / 今天告警 / 历史告警 / 告警统计"
+
+    def _register_face(self, name: str) -> str:
+        """从摄像头抓帧注册人脸到白名单"""
+        import subprocess
+        # 从 MJPEG 流抓一帧
+        try:
+            proc = subprocess.Popen(
+                ["curl", "-s", "-N", "-m", "3", self._get_camera_url()],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            buf = b""
+            for _ in range(200):
+                chunk = proc.stdout.read(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                s = buf.find(b"\xff\xd8")
+                if s >= 0:
+                    e = buf.find(b"\xff\xd9", s)
+                    if e >= 0:
+                        jpeg_bytes = buf[s:e+2]
+                        break
+            proc.kill()
+        except Exception:
+            return "⚠️ 无法获取摄像头画面"
+
+        if not jpeg_bytes or len(jpeg_bytes) < 100:
+            return "⚠️ 抓取画面失败，请确认摄像头在运行"
+
+        from datetime import datetime
+        frame = Frame("", datetime.now(), jpeg_bytes, 0, 0, 30)
+
+        # 用 FaceRecognizer 检测人脸并注册
+        ok = self._detector._face_recognizer.register_from_frame(name, frame)
+        if not ok:
+            return "⚠️ 未检测到人脸！请面对摄像头再试一次"
+
+        # 同时加入白名单配置
+        self._whitelist.add(name, f"{name}_face")
+        return f"✅ {name} 的人脸已注册成功！以后识别到你将不会告警"
+
+    def _get_camera_url(self) -> str:
+        """获取第一个摄像头的 URL"""
+        for cam in self._camera_manager._cameras.values():
+            return cam.rtsp_url
+        return "http://172.20.224.1:9000/video"
 
     def _query_alerts(self, days: int = 7, summary: bool = False) -> str:
         """查询告警历史"""
