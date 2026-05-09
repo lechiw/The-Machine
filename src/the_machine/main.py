@@ -111,17 +111,21 @@ class TheMachine:
     # ── 帧处理流水线 ──
 
     async def _camera_pipeline(self, camera: Camera) -> None:
-        """单个摄像头的帧处理流水线"""
-        try:
-            async for frame in camera.stream():
+        """单个摄像头的帧处理流水线（含自动重连）"""
+        while self._running:
+            try:
+                async for frame in camera.stream():
+                    if not self._running:
+                        break
+                    event = self.process_frame(frame)
+                    if event:
+                        self._notifier.send(event)
+                        print(f"  🚨 {event.event_type} @ {camera.name}", flush=True)
+            except Exception as e:
                 if not self._running:
                     break
-                event = self.process_frame(frame)
-                if event:
-                    self._notifier.send(event)
-                    print(f"  🚨 {event.event_type} @ {camera.name}", flush=True)
-        except Exception as e:
-            print(f"  ⚠️ 摄像头 {camera.name} 流水线异常: {e}", flush=True)
+                print(f"  ⚠️ 摄像头 {camera.name} 断流: {e}，5 秒后重连...", flush=True)
+                await asyncio.sleep(5)
 
     async def _run_pipeline(self) -> None:
         """运行所有摄像头的帧处理流水线"""

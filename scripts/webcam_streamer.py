@@ -25,33 +25,38 @@ class MJPEGHandler(BaseHTTPRequestHandler):
     """提供 MJPEG 流的 HTTP handler"""
 
     def do_GET(self):
-        if self.path != '/video':
-            self.send_response(404)
+        try:
+            if self.path != '/video':
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache')
+            self.send_header('Connection', 'close')
             self.end_headers()
-            return
 
-        self.send_response(200)
-        self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Cache-Control', 'no-cache')
-        self.send_header('Connection', 'close')
-        self.end_headers()
-
-        global cap
-        while cap and cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            _, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-            frame_bytes = jpeg.tobytes()
-            try:
-                self.wfile.write(b'--frame\r\n')
-                self.wfile.write(b'Content-Type: image/jpeg\r\n')
-                self.wfile.write(f'Content-Length: {len(frame_bytes)}\r\n\r\n'.encode())
-                self.wfile.write(frame_bytes)
-                self.wfile.write(b'\r\n')
-            except (BrokenPipeError, ConnectionResetError):
-                break
+            global cap
+            while cap and cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                _, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                frame_bytes = jpeg.tobytes()
+                try:
+                    self.wfile.write(b'--frame\r\n')
+                    self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                    self.wfile.write(f'Content-Length: {len(frame_bytes)}\r\n\r\n'.encode())
+                    self.wfile.write(frame_bytes)
+                    self.wfile.write(b'\r\n')
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    break
+                except Exception:
+                    break
+        except Exception:
+            pass  # 静默处理所有异常
 
     def log_message(self, format, *args):
         pass  # 安静运行
