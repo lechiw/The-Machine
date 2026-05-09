@@ -152,19 +152,54 @@ class EventStore:
 # ── 通知器 ──
 
 class Notifier:
-    """通知器 — 接收异常事件、格式化、推送"""
+    """通知器 — 接收异常事件、通过 OpenClaw CLI 推送 QQ"""
+
+    # QQ 接收者（可通过配置修改）
+    QQ_TARGET = "CCDC4A1709C211EDA20A77DFA54B115A"
+    QQ_CHANNEL = "qqbot"
 
     def __init__(
         self,
         formatter: Optional[QQFormatter] = None,
         quiet_mode: Optional[QuietMode] = None,
         event_store: Optional[EventStore] = None,
+        qq_target: Optional[str] = None,
     ):
         self._formatter = formatter or QQFormatter()
         self._quiet_mode = quiet_mode or QuietMode()
         self._event_store = event_store or EventStore()
         self._sent_count = 0
         self._suppressed_count = 0
+        self._failed_count = 0
+        if qq_target:
+            self.__class__.QQ_TARGET = qq_target
+
+    def _send_via_cli(self, message: str, media_path: str = "") -> bool:
+        """通过 openclaw CLI 发送 QQ 消息"""
+        import subprocess, os, shutil
+
+        cmd = [
+            "openclaw", "message", "send",
+            "--channel", self.QQ_CHANNEL,
+            "--target", self.QQ_TARGET,
+            "--message", message,
+        ]
+        if media_path and os.path.isfile(media_path):
+            # 转存到 QQ media 目录
+            qq_media = "/home/dministrator/.openclaw/media/qqbot/downloads"
+            os.makedirs(qq_media, exist_ok=True)
+            dest = os.path.join(qq_media, f"notify_{os.path.basename(media_path)}")
+            shutil.copy2(media_path, dest)
+            cmd.extend(["--media", dest])
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=15,
+                env={**os.environ, "HOME": os.path.expanduser("~")},
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
 
     def send(self, event: NumberEvent, dry_run: bool = False) -> dict:
         """处理告警事件：保存 → 检查压制 → 推送"""
@@ -180,9 +215,11 @@ class Notifier:
         msg = self._formatter.format(event)
 
         if not dry_run:
-            self._sent_count += 1
-            # TODO: 实际调用 OpenClaw QQ Bot 推送
-            # await openclaw_message_send(target=..., message=msg, media=evidence_path)
+            ok = self._send_via_cli(msg, event.evidence_path or "")
+            if ok:
+                self._sent_count += 1
+            else:
+                self._failed_count += 1
 
         return {
             "sent": True,
@@ -197,4 +234,5 @@ class Notifier:
         return {
             "sent": self._sent_count,
             "suppressed": self._suppressed_count,
+            "failed": self._failed_count,
         }
